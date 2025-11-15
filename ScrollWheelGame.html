@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Scroll Runner</title>
+    <style>
+        /* CRITICAL DESIGN CONSIDERATION: Fit within 240x282px portrait screen */
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            width: 240px;
+            height: 282px;
+            background-color: #333;
+            color: white;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 250px;
+            border-bottom: 2px solid #555;
+            overflow: hidden;
+        }
+
+        #player {
+            position: absolute;
+            bottom: 10px;
+            width: 20px;
+            height: 20px;
+            background-color: #00ffaa;
+            /* Using hardware-accelerated CSS property */
+            transform: translateX(110px); 
+            transition: transform 0.1s ease-out; /* Smooth movement */
+        }
+
+        .obstacle {
+            position: absolute;
+            top: -20px; /* Start off-screen */
+            width: 30px;
+            height: 20px;
+            background-color: #ff5555;
+            box-shadow: 0 0 5px rgba(255, 85, 85, 0.7);
+        }
+
+        #score {
+            padding: 5px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #00ffaa;
+        }
+
+        #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 240px;
+            height: 282px;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: none; /* Hidden by default */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            z-index: 100;
+        }
+        
+        #game-over-screen button {
+            padding: 10px 20px;
+            margin-top: 15px;
+            font-size: 16px;
+            background-color: #00ffaa;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="score">SCORE: 0</div>
+    <div id="game-container">
+        <div id="player"></div>
+    </div>
+    
+    <div id="game-over-screen">
+        <h2>GAME OVER!</h2>
+        <p>Final Score: <span id="final-score">0</span></p>
+        <button onclick="startGame()">RETRY</button>
+    </div>
+
+    <script>
+        const PLAYER_SPEED = 20; // Pixels per scroll movement
+        const MAX_X = 220; // 240 (container width) - 20 (player width)
+        const MIN_X = 0;
+        let playerX = 110; // Initial x position
+        let currentScore = 0;
+        let gameLoopInterval;
+        let obstacleSpawnInterval;
+        let isGameOver = true;
+
+        const player = document.getElementById('player');
+        const gameContainer = document.getElementById('game-container');
+        const scoreDisplay = document.getElementById('score');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const finalScoreDisplay = document.getElementById('final-score');
+
+        function updatePlayerPosition() {
+            // CRITICAL DESIGN CONSIDERATION: Use hardware-accelerated CSS property
+            player.style.transform = `translateX(${playerX}px)`;
+        }
+
+        function scrollUpHandler() {
+            if (isGameOver) return;
+            // Scroll Up moves the player Left
+            playerX = Math.max(MIN_X, playerX - PLAYER_SPEED);
+            updatePlayerPosition();
+        }
+
+        function scrollDownHandler() {
+            if (isGameOver) return;
+            // Scroll Down moves the player Right
+            playerX = Math.min(MAX_X, playerX + PLAYER_SPEED);
+            updatePlayerPosition();
+        }
+        
+        // --- R1 Scroll Wheel Integration ---
+        window.addEventListener("scrollUp", scrollUpHandler);
+        window.addEventListener("scrollDown", scrollDownHandler);
+        // -----------------------------------
+
+        function spawnObstacle() {
+            if (isGameOver) return;
+            const obstacle = document.createElement('div');
+            obstacle.className = 'obstacle';
+            
+            // Randomly position the obstacle within the bounds
+            const xPosition = Math.random() * (240 - 30); // 240 (container) - 30 (obstacle width)
+            obstacle.style.left = `${xPosition}px`;
+            
+            gameContainer.appendChild(obstacle);
+        }
+
+        function checkCollision(playerRect, obstacleRect) {
+            return (
+                playerRect.left < obstacleRect.right &&
+                playerRect.right > obstacleRect.left &&
+                playerRect.top < obstacleRect.bottom &&
+                playerRect.bottom > obstacleRect.top
+            );
+        }
+
+        function gameOver() {
+            isGameOver = true;
+            clearInterval(gameLoopInterval);
+            clearInterval(obstacleSpawnInterval);
+            
+            finalScoreDisplay.textContent = currentScore;
+            gameOverScreen.style.display = 'flex';
+        }
+
+        function gameLoop() {
+            if (isGameOver) return;
+            currentScore++;
+            scoreDisplay.textContent = `SCORE: ${currentScore}`;
+
+            const playerRect = player.getBoundingClientRect();
+            
+            // Get all obstacles
+            const obstacles = document.querySelectorAll('.obstacle');
+            
+            // CRITICAL DESIGN CONSIDERATION: Minimize DOM operations - loop efficiently
+            obstacles.forEach(obstacle => {
+                let obstacleY = parseFloat(obstacle.style.top) || -20;
+                obstacleY += 5; // Move down
+                obstacle.style.top = `${obstacleY}px`;
+                
+                // Remove obstacle if it goes off screen (and increase score, though score is per frame here)
+                if (obstacleY > 250) {
+                    obstacle.remove();
+                    return; // Skip collision check for removed obstacle
+                }
+                
+                const obstacleRect = obstacle.getBoundingClientRect();
+
+                // Check for collision
+                if (checkCollision(playerRect, obstacleRect)) {
+                    gameOver();
+                }
+            });
+        }
+        
+        function startGame() {
+            // Reset game state
+            isGameOver = false;
+            currentScore = 0;
+            playerX = 110;
+            scoreDisplay.textContent = `SCORE: 0`;
+            gameOverScreen.style.display = 'none';
+            player.style.backgroundColor = '#00ffaa';
+
+            // Clear existing obstacles
+            document.querySelectorAll('.obstacle').forEach(o => o.remove());
+
+            // Reset player position
+            updatePlayerPosition();
+
+            // Start game loops
+            gameLoopInterval = setInterval(gameLoop, 30); // Game logic tick (approx 33 FPS)
+            obstacleSpawnInterval = setInterval(spawnObstacle, 1500); // Spawn a new obstacle every 1.5 seconds
+        }
+
+        // Start the game on load (and show the initial score/container)
+        startGame();
+
+    </script>
+</body>
+</html>
