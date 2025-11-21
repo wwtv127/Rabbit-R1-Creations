@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>R1 Gemini Chat</title>
+    <!-- Tailwind CSS for utility styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* ADDED: Lock the entire viewport to prevent scrolling */
+        html {
+            overflow: hidden; 
+        }
+
+        /* CRITICAL R1 Design Constraint: Fixed Size for Portrait Mode (240px by 282px) */
+        body {
+            width: 240px;
+            min-width: 240px; 
+            max-width: 240px; 
+            height: 282px;
+            min-height: 282px; 
+            max-height: 282px; 
+            box-sizing: border-box; 
+            overflow: hidden; 
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a1a; 
+        }
+        /* Custom scrollbar style for better R1 fit */
+        #chat-history::-webkit-scrollbar {
+            width: 4px;
+        }
+        #chat-history::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 2px;
+        }
+        #chat-history::-webkit-scrollbar-track {
+            background: #2a2a2a;
+        }
+        /* Optimized for performance */
+        .message-box {
+            transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+            will-change: transform, opacity; 
+            word-wrap: break-word;
+        }
+        
+        /* --- BOLD TEXT STYLING --- */
+        .message-box strong {
+            font-weight: 700;
+            color: #fff;
+        }
+        /* --- LIST FORMATTING FIX --- */
+        .message-box ul, .message-box ol {
+            margin-top: 0.5rem;
+            padding-left: 1.5rem;
+            list-style-position: outside;
+        }
+        .message-box ul {
+            list-style-type: disc;
+        }
+        .message-box ol {
+            list-style-type: decimal;
+        }
+        .message-box br {
+             display: none;
+        }
+        .message-box br:first-of-type {
+            display: block; 
+        }
+        .message-box li {
+            margin-bottom: 0.25rem;
+        }
+        /* --- END LIST FORMATTING FIX --- */
+
+        /* Loader spinner */
+        .loader {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-left-color: #fca5a5; 
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Recording Indicator Animation */
+        .recording-pulse {
+            animation: pulse-red 1s infinite alternate;
+        }
+        @keyframes pulse-red {
+            from { box-shadow: 0 0 0 0 rgba(252, 165, 165, 0.7); }
+            to { box-shadow: 0 0 0 6px rgba(252, 165, 165, 0); }
+        }
+
+
+        /* Settings Overlay */
+        #settings-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #1a1a1a;
+            z-index: 10;
+            transform: translateX(100%);
+            transition: transform 0.3s ease-in-out;
+            padding-bottom: 4px; 
+        }
+        #settings-overlay.active {
+            transform: translateX(0);
+        }
+
+        /* Custom Toggle Switch CSS */
+        .switch { position: relative; display: inline-block; width: 34px; height: 20px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 20px; }
+        .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #fca5a5; } /* Red/Pink color */
+        input:focus + .slider { box-shadow: 0 0 1px #fca5a5; }
+        input:checked + .slider:before { transform: translateX(14px); }
+    </style>
+</head>
+<body class="flex flex-col h-full text-white relative">
+
+    <!-- Header / Title Bar -->
+    <div class="flex justify-between items-center p-2 bg-gray-900 border-b border-gray-700">
+        <h1 class="text-base font-semibold">R1-Gemini Chat</h1>
+        <!-- Settings Button -->
+        <button id="settings-button" class="text-gray-400 hover:text-red-400 p-1 rounded-full transition duration-150" onclick="openSettings()">
+            <!-- SVG Gear Icon -->
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1.51-1V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1h.09a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09z"/></svg>
+        </button>
+    </div>
+
+    <!-- Chat History Area -->
+    <div id="chat-history" class="flex-grow p-2 space-y-2 overflow-y-auto">
+        <!-- Initial Message is handled in JS after loading system instruction -->
+    </div>
+
+    <!-- Input and Controls Area: Now includes the Mic button -->
+    <div class="p-2 border-t border-gray-600 bg-gray-800 flex flex-col gap-2">
+        <!-- Text Input and Mic Button Container -->
+        <div class="flex items-end gap-1">
+            <textarea id="user-input" class="flex-grow h-12 p-2 bg-gray-700 text-sm rounded-lg border border-gray-600 focus:outline-none focus:border-red-400 resize-none" placeholder="Your prompt..." onkeydown="handleEnter(event)"></textarea>
+            
+            <button id="mic-button" class="flex-shrink-0 w-10 h-10 p-2 bg-gray-700 hover:bg-red-500 text-gray-300 rounded-lg transition duration-150" onclick="handleVoiceInput()">
+                <!-- Mic SVG Icon -->
+                <svg id="mic-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="22"></line>
+                </svg>
+            </button>
+        </div>
+
+        <button id="send-button" class="w-full py-1 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition duration-150" onclick="sendMessage()">
+            <span id="button-text">Send</span>
+            <span id="button-loader" class="loader hidden"></span>
+        </button>
+    </div>
+    
+    <!-- Settings Overlay Panel -->
+    <div id="settings-overlay" class="absolute top-0 left-0 w-full h-full flex flex-col p-3">
+        <h2 class="text-lg font-bold mb-2 text-red-400">Settings</h2>
+
+        <!-- TTS Toggle Switch -->
+        <div class="flex justify-between items-center bg-gray-700 p-2 rounded-lg mb-3">
+            <span class="text-sm">Enable Text-to-Speech</span>
+            <label class="switch">
+                <input type="checkbox" id="tts-toggle" onchange="toggleTts()">
+                <span class="slider round"></span>
+            </label>
+        </div>
+
+        <h2 class="text-lg font-bold mb-2 text-red-400">System Instruction</h2>
+        <p class="text-xs text-gray-400 mb-2">Customize the LLM's persona and rules.</p>
+        
+        <textarea id="system-instruction-input" 
+                  class="flex-grow w-full p-2 bg-gray-700 text-sm rounded-lg border border-gray-600 focus:outline-none focus:border-red-400 resize-none mb-3" 
+                  rows="6" 
+                  placeholder="Enter custom instructions here..."></textarea>
+                  
+        <div class="flex justify-between gap-1">
+            <button class="flex-grow py-2 bg-gray-600 hover:bg-gray-500 text-white font-semibold rounded-lg text-sm" onclick="resetSettings()">Reset</button>
+            <button class="flex-grow py-2 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg text-sm" onclick="saveSettings()">Save & Close</button>
+        </div>
+    </div>
+
+
+    <script type="text/javascript">
+        // Global Constants
+        const MODEL = 'gemini-2.5-flash-preview-09-2025';
+        const STORAGE_SYS_KEY = 'gemini_sys_instruction';
+        const STORAGE_TTS_KEY = 'tts_enabled';
+        
+        // CRITICAL: Simple system instruction to be the default
+        const DEFAULT_SYSTEM_INSTRUCTION = "You are an AI assistant.";
+        
+        // Use a temporary, highly specialized instruction for the transcription step.
+        // This is necessary to prevent the model from generating filler/acknowledgements based on the audio data itself.
+        const TRANSCRIPTION_SYSTEM_INSTRUCTION = "You are a transcription service. Output the exact transcribed text of the attached audio and nothing else.";
+        
+        // Using the user-provided educational API key.
+        const apiKey = "AIzaSyAyu53MaE3q8Uqee5CzmI0PiNtKUwQV8zc";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
+
+        // Global State
+        let systemInstruction = DEFAULT_SYSTEM_INSTRUCTION;
+        let isTtsEnabled = false; 
+        let isGenerating = false;
+        let isRecording = false;
+        let chatHistoryData = [];
+        let audioContext = null; 
+        let mediaRecorder = null; 
+        let audioChunks = []; 
+        let stream = null; 
+        
+        // DOM elements
+        const chatHistory = document.getElementById('chat-history');
+        const userInput = document.getElementById('user-input');
+        const sendButton = document.getElementById('send-button');
+        const buttonText = document.getElementById('button-text');
+        const buttonLoader = document.getElementById('button-loader');
+        const settingsOverlay = document.getElementById('settings-overlay');
+        const sysInstructionInput = document.getElementById('system-instruction-input');
+        const ttsToggle = document.getElementById('tts-toggle');
+        const micButton = document.getElementById('mic-button');
+        
+        // --- UTILITIES ---
+
+        function arrayBufferToBase64(buffer) {
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+
+        function basicMarkdownToHtml(text) {
+            let htmlText = text;
+            htmlText = htmlText.replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>');
+            htmlText = htmlText.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+            htmlText = htmlText.replace(/\n/g, '<br>');
+            return htmlText;
+        }
+
+        function addMessage(text, sender, updateHistory = true, isSystem = false) {
+            
+            // Only add to history if it's a real user or model message
+            if (updateHistory) {
+                chatHistoryData.push({ 
+                    role: sender === 'user' ? 'user' : 'model', 
+                    parts: [{ text: text }] 
+                });
+            }
+
+            const formattedText = basicMarkdownToHtml(text);
+
+            const messageEl = document.createElement('div');
+            messageEl.className = 'message-box p-2 rounded-lg text-sm max-w-[85%] opacity-0 transform translate-y-2';
+
+            if (isSystem) {
+                messageEl.classList.add('mx-auto', 'text-gray-400', 'bg-transparent', 'border', 'border-gray-700', 'max-w-[95%]');
+                messageEl.innerHTML = formattedText;
+            } else if (sender === 'user') {
+                messageEl.classList.add('ml-auto', 'bg-red-700');
+                messageEl.innerHTML = formattedText;
+            } else {
+                messageEl.classList.add('mr-auto', 'bg-gray-700', 'flex', 'items-start');
+                
+                let displayHtml = formattedText.trim();
+                
+                // Add the R1 prefix for model responses in the UI
+                displayHtml = `<span><strong>R1-Gemini:</strong> ${displayHtml}</span>`;
+
+                messageEl.innerHTML = displayHtml;
+            }
+
+            chatHistory.appendChild(messageEl);
+
+            setTimeout(() => {
+                messageEl.classList.remove('opacity-0', 'translate-y-2');
+                requestAnimationFrame(() => {
+                    chatHistory.scrollTop = chatHistory.scrollHeight;
+                });
+            }, 10);
+            
+            return messageEl;
+        }
+
+        // --- WEB AUDIO/TTS FUNCTIONS (Same as previous version, omitted for brevity but included in file) ---
+
+        function base64ToArrayBuffer(base64) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        function createWavArrayBuffer(pcm16, sampleRate) {
+            const numChannels = 1;
+            const bitsPerSample = 16;
+            const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+            const blockAlign = numChannels * (bitsPerSample / 8);
+            const dataSize = pcm16.length * 2; 
+            const buffer = new ArrayBuffer(44 + dataSize);
+            const view = new DataView(buffer);
+            let offset = 0;
+
+            function writeString(str) { for (let i = 0; i < str.length; i++) { view.setUint8(offset + i, str.charCodeAt(i)); } offset += str.length; }
+            function writeUint32(val) { view.setUint32(offset, val, true); offset += 4; }
+            function writeUint16(val) { view.setUint16(offset, val, true); offset += 2; }
+
+            writeString('RIFF'); writeUint32(36 + dataSize); writeString('WAVE');
+            writeString('fmt '); writeUint32(16); writeUint16(1); writeUint16(numChannels);
+            writeUint32(sampleRate); writeUint32(byteRate); writeUint16(blockAlign); writeUint16(bitsPerSample);
+            writeString('data'); writeUint32(dataSize);
+
+            for (let i = 0; i < pcm16.length; i++) { view.setInt16(offset, pcm16[i], true); offset += 2; }
+            return buffer;
+        }
+        
+        function arrayBufferToWavBlob(arrayBuffer) { return new Blob([arrayBuffer], { type: 'audio/wav' }); }
+
+        async function ensureAudioContext() {
+            if (!audioContext) {
+                try {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                    console.error("AudioContext initialization failed:", e);
+                    return;
+                }
+            }
+            if (audioContext.state === 'suspended') {
+                try { await audioContext.resume(); } catch (e) { console.warn("AudioContext resume failed:", e); }
+            }
+        }
+
+        function showPlayButton(messageEl) {
+            if (messageEl.querySelector('.tts-play-btn')) return;
+
+            const playButton = document.createElement('button');
+            playButton.className = 'tts-play-btn ml-2 flex-shrink-0 text-red-300 hover:text-red-400 focus:outline-none transition duration-150 p-1 rounded-full';
+            playButton.setAttribute('onclick', 'retryPlayTts(this)');
+            
+            playButton.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                </svg>
+            `;
+            
+            messageEl.appendChild(playButton);
+        }
+
+        function retryPlayTts(buttonEl) {
+            const messageEl = buttonEl.closest('.message-box');
+            const audioUrl = messageEl.dataset.audioUrl;
+            
+            if (audioUrl) {
+                const audio = new Audio(audioUrl);
+                buttonEl.remove();
+                
+                audio.play().catch(e => {
+                    console.error("Manual audio playback failed unexpectedly:", e);
+                    showPlayButton(messageEl);
+                });
+
+                audio.onended = () => URL.revokeObjectURL(audioUrl);
+            }
+        }
+
+        async function generateAndPlayTts(text, messageEl) {
+            await ensureAudioContext(); 
+            if (!audioContext) return;
+
+            const ttsApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+
+            const ttsPayload = {
+                contents: [{ parts: [{ text: text }] }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } }
+                },
+                model: "gemini-2.5-flash-preview-tts"
+            };
+
+            try {
+                const response = await fetch(ttsApiUrl, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ttsPayload)
+                });
+                if (!response.ok) { throw new Error(`TTS API failed: ${response.status}`); }
+                const result = await response.json();
+                const part = result?.candidates?.[0]?.content?.parts?.[0];
+                const audioDataB64 = part?.inlineData?.data;
+                const mimeType = part?.inlineData?.mimeType;
+
+                if (audioDataB64 && mimeType && mimeType.startsWith("audio/L16")) {
+                    const audioBufferRaw = base64ToArrayBuffer(audioDataB64);
+                    if (audioBufferRaw.byteLength === 0) return;
+                    
+                    const rateMatch = mimeType.match(/rate=(\d+)/);
+                    const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000;
+                    const pcm16 = new Int16Array(audioBufferRaw);
+                    const wavBuffer = createWavArrayBuffer(pcm16, sampleRate);
+
+                    audioContext.decodeAudioData(wavBuffer, (decodedBuffer) => {
+                        const source = audioContext.createBufferSource();
+                        source.buffer = decodedBuffer;
+                        source.connect(audioContext.destination);
+                        try {
+                            source.start(0);
+                        } catch (e) {
+                            const wavBlob = arrayBufferToWavBlob(wavBuffer);
+                            const audioUrl = URL.createObjectURL(wavBlob);
+                            messageEl.dataset.audioUrl = audioUrl;
+                            showPlayButton(messageEl);
+                        }
+                    }, (error) => { console.error("Error decoding WAV audio data:", error); });
+                } else { console.error("TTS response missing valid audio data or mime type.", mimeType); }
+            } catch (e) { console.error("TTS generation error:", e); }
+        }
+        
+        // --- MEDIA RECORDER STT FUNCTIONS ---
+
+        async function startRecording() {
+            if (isGenerating || isRecording) return;
+            
+            isRecording = true;
+            micButton.disabled = true; 
+
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = event => { audioChunks.push(event.data); };
+
+                mediaRecorder.onstop = () => {
+                    handleRecordedAudio(mediaRecorder.mimeType); 
+                    if (stream) {
+                        stream.getTracks().forEach(track => track.stop());
+                        stream = null;
+                    }
+                    mediaRecorder = null; 
+                };
+                
+                mediaRecorder.onerror = (e) => {
+                    console.error('MediaRecorder Error:', e.error);
+                    stopRecording(false); 
+                    resetVoiceUi();
+                    addMessage("R1-Gemini: Recording failed. Please check mic permissions.", 'model', false, true);
+                };
+
+                mediaRecorder.start();
+                
+                // UI updates for recording state
+                micButton.classList.add('bg-red-500', 'text-white', 'recording-pulse');
+                micButton.classList.remove('bg-gray-700', 'hover:bg-red-500', 'text-gray-300');
+                userInput.disabled = true;
+                userInput.placeholder = "Recording... Click again to send.";
+
+            } catch (err) {
+                console.error('Microphone access denied:', err);
+                isRecording = false;
+                mediaRecorder = null; 
+                stream = null;
+                resetVoiceUi();
+                addMessage("R1-Gemini: Could not access microphone. Please grant permission in your browser settings.", 'model', false, true);
+            } finally {
+                micButton.disabled = false; 
+            }
+        }
+        
+        function stopRecording(send = true) {
+            if (!isRecording || !mediaRecorder || mediaRecorder.state !== 'recording') {
+                 isRecording = false; 
+                 resetVoiceUi();
+                 return;
+            }
+            
+            isRecording = false; 
+            mediaRecorder.stop();
+            
+            if (!send) { audioChunks = []; }
+            
+            resetVoiceUi();
+        }
+
+        /**
+         * The core multimodal logic for voice. This orchestrates the two API calls.
+         */
+        async function handleRecordedAudio(mimeType) {
+            if (audioChunks.length === 0) {
+                addMessage("R1-Gemini: No audio recorded. Please try again.", 'model', false, true);
+                return;
+            }
+
+            const audioBlob = new Blob(audioChunks, { type: mimeType });
+            audioChunks = [];
+
+            isGenerating = true;
+            toggleLoading(true, "Transcribing...");
+            
+            // Convert Blob to Base64
+            const reader = new FileReader();
+            reader.readAsArrayBuffer(audioBlob);
+            reader.onloadend = async () => {
+                const arrayBuffer = reader.result;
+                const base64Audio = arrayBufferToBase64(arrayBuffer);
+                
+                // 1. FIRST API CALL: Get Transcription ONLY
+                const transcription = await coreApiCall([
+                    { role: 'user', parts: [
+                        { text: "Transcribe the attached audio." },
+                        { inlineData: { mimeType: mimeType, data: base64Audio } }
+                    ]}
+                ], TRANSCRIPTION_SYSTEM_INSTRUCTION);
+
+                if (transcription) {
+                    // 2. Add the clean transcription as the user's message
+                    addMessage(transcription, 'user');
+                    
+                    toggleLoading(true, "Thinking...");
+
+                    // 3. SECOND API CALL: Get Answer (using the main strict system instruction)
+                    // The history now includes the transcribed text, and the payload is text-only.
+                    await coreApiCall(chatHistoryData, systemInstruction);
+
+                } else {
+                    addMessage("R1-Gemini: Failed to understand the audio. Please speak clearly and try again.", 'model', false, true);
+                }
+                
+                isGenerating = false;
+                toggleLoading(false);
+            };
+        }
+        
+        /**
+         * Main handler for the mic button click (Toggles start/stop)
+         */
+        function handleVoiceInput() {
+            if (isGenerating) return;
+            
+            if (isRecording) {
+                stopRecording(true); // Stop recording and send
+            } else {
+                startRecording(); // Start recording
+            }
+        }
+
+        /**
+         * Resets the UI elements related to voice input.
+         */
+        function resetVoiceUi() {
+            isRecording = false;
+            micButton.disabled = isGenerating; // Prevent interaction if generation is still happening
+            
+            micButton.classList.remove('bg-red-500', 'text-white', 'recording-pulse');
+            micButton.classList.add('bg-gray-700', 'hover:bg-red-500', 'text-gray-300');
+            
+            userInput.placeholder = "Your prompt...";
+            userInput.disabled = isGenerating; 
+
+            if (!isGenerating) {
+                userInput.focus(); // Keep focus when voice is canceled/stopped without generating an answer
+            }
+        }
+
+        // --- API & CHAT HANDLING ---
+
+        /**
+         * Handles sending the prompt text to the Gemini API.
+         */
+        async function sendMessage() {
+            if (isGenerating) return;
+
+            const prompt = userInput.value.trim();
+            if (!prompt) return;
+
+            addMessage(prompt, 'user');
+            userInput.value = ''; 
+            
+            isGenerating = true;
+            toggleLoading(true);
+
+            // Text input only needs one API call
+            await coreApiCall(chatHistoryData, systemInstruction);
+            
+            isGenerating = false;
+            toggleLoading(false);
+        }
+        
+        /**
+         * Core function to fetch response from Gemini with backoff.
+         * @param {Array} contents The chat history or specific contents for the request.
+         * @param {string} specificSystemInstruction The system prompt to use for this call.
+         * @returns {string|null} The text response or null on failure.
+         */
+        async function coreApiCall(contents, specificSystemInstruction) {
+            const MAX_RETRIES = 5;
+            const INITIAL_DELAY = 1000; 
+
+            for (let retry = 0; retry < MAX_RETRIES; retry++) {
+                try {
+                    const payload = {
+                        contents: contents, 
+                        systemInstruction: {
+                            parts: [{ text: specificSystemInstruction }]
+                        },
+                    };
+
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.status === 429 && retry < MAX_RETRIES - 1) {
+                        const delay = INITIAL_DELAY * Math.pow(2, retry) + Math.random() * 1000;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                    }
+
+                    if (!response.ok) {
+                        throw new Error(`API Request failed with status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+                    
+                    if (text && specificSystemInstruction === systemInstruction) {
+                         // This is the final answer call: display the message
+                         const modelMessageEl = addMessage(text, 'model');
+
+                         if (isTtsEnabled && modelMessageEl) {
+                             await generateAndPlayTts(text, modelMessageEl);
+                         }
+                    }
+
+                    // Return the text for both transcription (if applicable) and final answer
+                    return text; 
+
+                } catch (error) {
+                    console.error('Gemini API Error:', error);
+                    // Only log error message to console, do not display filler
+                    if (retry === MAX_RETRIES - 1) {
+                        // Return null on critical failure
+                        return null; 
+                    }
+                }
+            }
+            return null;
+        }
+
+
+        // --- SETTINGS AND STORAGE FUNCTIONS ---
+
+        async function initializeSettings() {
+            let sysMessageStatus = 'Default (AI assistant)';
+            try {
+                if (window.creationStorage && window.creationStorage.plain) {
+                    const storedInstructionBase64 = await window.creationStorage.plain.getItem(STORAGE_SYS_KEY);
+                    if (storedInstructionBase64) {
+                        systemInstruction = atob(storedInstructionBase64);
+                        // Check if it's the simple default before labeling as 'Custom'
+                        if (systemInstruction !== DEFAULT_SYSTEM_INSTRUCTION) {
+                            sysMessageStatus = 'Custom';
+                        }
+                    }
+                    const storedTtsEnabled = await window.creationStorage.plain.getItem(STORAGE_TTS_KEY);
+                    if (storedTtsEnabled === 'true') {
+                        isTtsEnabled = true;
+                        ttsToggle.checked = true;
+                    }
+                }
+            } catch (e) {
+                console.error("Error loading settings from storage:", e);
+            }
+            if (isTtsEnabled) await ensureAudioContext();
+            
+            addMessage(`Hello! Ask me anything. (Instruction: ${sysMessageStatus}, TTS: ${isTtsEnabled ? 'On' : 'Off'})`, 'model', false);
+        }
+
+        async function saveSystemInstruction(newInstruction) {
+            try {
+                if (window.creationStorage && window.creationStorage.plain) {
+                    const encodedInstruction = btoa(newInstruction);
+                    await window.creationStorage.plain.setItem(STORAGE_SYS_KEY, encodedInstruction);
+                }
+                systemInstruction = newInstruction;
+            } catch (e) {
+                console.error("Error saving system instruction to storage:", e);
+            }
+        }
+        
+        async function saveTtsSetting(isEnabled) {
+            try {
+                if (window.creationStorage && window.creationStorage.plain) {
+                    await window.creationStorage.plain.setItem(STORAGE_TTS_KEY, isEnabled ? 'true' : 'false');
+                }
+                isTtsEnabled = isEnabled;
+            } catch (e) {
+                console.error("Error saving TTS setting to storage:", e);
+            }
+        }
+
+
+        function openSettings() {
+            sysInstructionInput.value = systemInstruction;
+            ttsToggle.checked = isTtsEnabled; 
+            settingsOverlay.classList.add('active');
+        }
+
+        async function saveSettings() {
+            const newInstruction = sysInstructionInput.value.trim();
+            // Fall back to the simple default if the user saves an empty string
+            if (!newInstruction) {
+                await saveSystemInstruction(DEFAULT_SYSTEM_INSTRUCTION);
+            } else if (newInstruction !== systemInstruction) {
+                await saveSystemInstruction(newInstruction);
+            }
+            isTtsEnabled = ttsToggle.checked;
+            
+            settingsOverlay.classList.remove('active');
+        }
+        
+        async function resetSettings() {
+            sysInstructionInput.value = DEFAULT_SYSTEM_INSTRUCTION;
+            ttsToggle.checked = false;
+            
+            await saveSystemInstruction(DEFAULT_SYSTEM_INSTRUCTION);
+            await saveTtsSetting(false);
+            
+            settingsOverlay.classList.remove('active');
+            chatHistoryData = [];
+            chatHistory.innerHTML = '';
+            await initializeSettings();
+        }
+
+        async function toggleTts() {
+            const newState = ttsToggle.checked;
+            await saveTtsSetting(newState);
+            if (newState) {
+                await ensureAudioContext();
+            }
+        }
+
+        /**
+         * Toggles the loading state of the UI.
+         */
+        function toggleLoading(isLoading, customText = 'Send') {
+            sendButton.disabled = isLoading;
+            micButton.disabled = isLoading;
+            if (isLoading) {
+                buttonText.classList.remove('hidden'); 
+                buttonText.textContent = customText;
+                buttonLoader.classList.remove('hidden');
+                userInput.disabled = true;
+            } else {
+                buttonText.textContent = 'Send';
+                buttonLoader.classList.add('hidden');
+                userInput.disabled = false;
+                // REMOVED: userInput.focus(); // This line was causing the keyboard to pop up after a response.
+            }
+        }
+
+        /**
+         * Handles the Enter key press in the textarea.
+         */
+        function handleEnter(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault(); 
+                sendMessage();
+            }
+        }
+
+        // --- R1 CREATIONS SDK INTEGRATION ---
+
+        window.addEventListener("sideClick", () => {
+            if (!isGenerating) {
+                if (isRecording) {
+                     stopRecording(true); // Stop recording and send
+                } else if (userInput.value.trim() !== '') {
+                    sendMessage(); // Send typed text
+                } else {
+                    startRecording(); // Start recording
+                }
+            }
+        });
+
+        const SCROLL_AMOUNT = 30; 
+
+        window.addEventListener("scrollUp", () => {
+            requestAnimationFrame(() => { chatHistory.scrollTop -= SCROLL_AMOUNT; });
+        });
+
+        window.addEventListener("scrollDown", () => {
+            requestAnimationFrame(() => { chatHistory.scrollTop += SCROLL_AMOUNT; });
+        });
+
+        window.onPluginMessage = function(data) { console.log("Received message from server:", data); };
+
+        // Initialize: Load settings and focus input
+        document.addEventListener('DOMContentLoaded', async () => {
+            await initializeSettings();
+            userInput.focus(); // Keep initial focus so user can start typing immediately upon app load
+        });
+
+    </script>
+</body>
+</html>
