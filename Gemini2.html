@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>R1 Gemini Chat</title>
+    <!-- Tailwind CSS for utility styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* CRITICAL R1 Design Constraint: Fixed Size for Portrait Mode (240px by 282px) */
+        body {
+            width: 240px;
+            min-width: 240px; /* Enforce minimum width */
+            max-width: 240px; /* Enforce maximum width */
+            height: 282px;
+            min-height: 282px; /* Enforce minimum height */
+            max-height: 282px; /* Enforce maximum height */
+            box-sizing: border-box; /* Ensure padding/border don't change size */
+            overflow: hidden; /* Prevent body scroll */
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a1a; /* Dark background */
+        }
+        /* Custom scrollbar style for better R1 fit */
+        #chat-history::-webkit-scrollbar {
+            width: 4px;
+        }
+        #chat-history::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 2px;
+        }
+        #chat-history::-webkit-scrollbar-track {
+            background: #2a2a2a;
+        }
+        /* Optimized for performance */
+        .message-box {
+            transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+            will-change: transform, opacity;
+            /* Ensure text wrapping within the fixed width */
+            word-wrap: break-word;
+        }
+        
+        /* --- BOLD TEXT STYLING --- */
+        .message-box strong {
+            /* Ensure bold text stands out clearly */
+            font-weight: 700; /* Extra bold */
+            color: #fff; /* Explicit white color */
+        }
+        /* --- LIST FORMATTING FIX --- */
+        .message-box ul, .message-box ol {
+            /* Fix indentation for lists */
+            margin-top: 0.5rem;
+            padding-left: 1.5rem;
+            list-style-position: outside;
+        }
+        .message-box ul {
+            list-style-type: disc;
+        }
+        .message-box ol {
+            list-style-type: decimal;
+        }
+        .message-box br {
+             /* Prevent excessive spacing between list items if model outputs multiple newlines */
+             display: none;
+        }
+        .message-box br:first-of-type {
+            display: block; /* Allow first line break for spacing after title */
+        }
+        .message-box li {
+            margin-bottom: 0.25rem;
+        }
+        /* --- END LIST FORMATTING FIX --- */
+
+        /* Loader spinner */
+        .loader {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-left-color: #fca5a5; /* Custom color for spinner */
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Settings Overlay */
+        #settings-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #1a1a1a;
+            z-index: 10;
+            transform: translateX(100%);
+            transition: transform 0.3s ease-in-out;
+            padding-bottom: 4px; /* Fix for button clipping */
+        }
+        #settings-overlay.active {
+            transform: translateX(0);
+        }
+
+        /* Custom Toggle Switch CSS */
+        .switch {
+          position: relative;
+          display: inline-block;
+          width: 34px;
+          height: 20px;
+        }
+        .switch input { 
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+        .slider {
+          position: absolute;
+          cursor: pointer;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: #ccc;
+          transition: .4s;
+          border-radius: 20px;
+        }
+        .slider:before {
+          position: absolute;
+          content: "";
+          height: 14px;
+          width: 14px;
+          left: 3px;
+          bottom: 3px;
+          background-color: white;
+          transition: .4s;
+          border-radius: 50%;
+        }
+        input:checked + .slider {
+          background-color: #fca5a5; /* Red/Pink color */
+        }
+        input:focus + .slider {
+          box-shadow: 0 0 1px #fca5a5;
+        }
+        input:checked + .slider:before {
+          transform: translateX(14px);
+        }
+    </style>
+</head>
+<body class="flex flex-col h-full text-white relative">
+
+    <!-- Header / Title Bar -->
+    <div class="flex justify-between items-center p-2 bg-gray-900 border-b border-gray-700">
+        <h1 class="text-base font-semibold">R1-Gemini Chat</h1>
+        <!-- Settings Button (Icon Placeholder) -->
+        <button id="settings-button" class="text-gray-400 hover:text-red-400 p-1 rounded-full transition duration-150" onclick="openSettings()">
+            <!-- SVG Gear Icon -->
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1.51-1V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1h.09a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09z"/></svg>
+        </button>
+    </div>
+
+    <!-- Chat History Area -->
+    <div id="chat-history" class="flex-grow p-2 space-y-2 overflow-y-auto">
+        <!-- Initial Message is handled in JS after loading system instruction -->
+    </div>
+
+    <!-- Input and Controls Area -->
+    <div class="p-2 border-t border-gray-600 bg-gray-800 flex flex-col gap-2">
+        <textarea id="user-input" class="w-full h-12 p-2 bg-gray-700 text-sm rounded-lg border border-gray-600 focus:outline-none focus:border-red-400 resize-none" placeholder="Your prompt..." onkeydown="handleEnter(event)"></textarea>
+        <button id="send-button" class="w-full py-1 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition duration-150" onclick="sendMessage()">
+            <span id="button-text">Send</span>
+            <span id="button-loader" class="loader hidden"></span>
+        </button>
+    </div>
+    
+    <!-- Settings Overlay Panel -->
+    <div id="settings-overlay" class="flex flex-col p-3">
+        <h2 class="text-lg font-bold mb-2 text-red-400">Settings</h2>
+
+        <!-- TTS Toggle Switch -->
+        <div class="flex justify-between items-center bg-gray-700 p-2 rounded-lg mb-3">
+            <span class="text-sm">Enable Text-to-Speech</span>
+            <label class="switch">
+                <input type="checkbox" id="tts-toggle" onchange="toggleTts()">
+                <span class="slider round"></span>
+            </label>
+        </div>
+
+        <h2 class="text-lg font-bold mb-2 text-red-400">System Instruction</h2>
+        <p class="text-xs text-gray-400 mb-2">Customize the LLM's persona and rules.</p>
+        
+        <textarea id="system-instruction-input" 
+                  class="flex-grow w-full p-2 bg-gray-700 text-sm rounded-lg border border-gray-600 focus:outline-none focus:border-red-400 resize-none mb-3" 
+                  rows="6" 
+                  placeholder="Enter custom instructions here..."></textarea>
+                  
+        <div class="flex justify-between gap-1">
+            <button class="flex-grow py-2 bg-gray-600 hover:bg-gray-500 text-white font-semibold rounded-lg text-sm" onclick="resetSettings()">Reset</button>
+            <button class="flex-grow py-2 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg text-sm" onclick="saveSettings()">Save & Close</button>
+        </div>
+    </div>
+
+
+    <script type="text/javascript">
+        // Global Constants
+        const MODEL = 'gemini-2.5-flash-preview-09-2025';
+        const STORAGE_SYS_KEY = 'gemini_sys_instruction';
+        const STORAGE_TTS_KEY = 'tts_enabled';
+        // The default instruction if nothing is found in storage
+        const DEFAULT_SYSTEM_INSTRUCTION = "You are a helpful assistant designed for the Rabbit R1 device. Prioritize clear, complete, and easy-to-read answers based on the user's current query and the ongoing history. Use Markdown formatting for lists and bolding.";
+        
+        // Using the user-provided educational API key as requested.
+        const apiKey = "AIzaSyAyu53MaE3q8Uqee5CzmI0PiNtKUwQV8zc";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
+
+        // Global State
+        let systemInstruction = DEFAULT_SYSTEM_INSTRUCTION;
+        let isTtsEnabled = false; // New global state for TTS
+        let isGenerating = false;
+        let chatHistoryData = [];
+        let audioContext = null; // Global AudioContext instance
+
+        // DOM elements
+        const chatHistory = document.getElementById('chat-history');
+        const userInput = document.getElementById('user-input');
+        const sendButton = document.getElementById('send-button');
+        const buttonText = document.getElementById('button-text');
+        const buttonLoader = document.getElementById('button-loader');
+        const settingsOverlay = document.getElementById('settings-overlay');
+        const sysInstructionInput = document.getElementById('system-instruction-input');
+        const ttsToggle = document.getElementById('tts-toggle');
+        
+        // --- WEB AUDIO API FUNCTIONS ---
+
+        /**
+         * Ensures the AudioContext is initialized and attempts to unlock it using a user gesture.
+         */
+        async function ensureAudioContext() {
+            if (!audioContext) {
+                try {
+                    // Initialize the AudioContext
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    console.log("AudioContext initialized.");
+                } catch (e) {
+                    console.error("AudioContext initialization failed:", e);
+                    return; // Cannot proceed without context
+                }
+            }
+
+            // Attempt to resume/unlock the context if it's currently suspended (most common issue)
+            if (audioContext.state === 'suspended') {
+                try {
+                    await audioContext.resume();
+                    console.log("AudioContext resumed successfully.");
+                } catch (e) {
+                    console.warn("AudioContext resume failed, might still need manual gesture later:", e);
+                }
+            }
+        }
+
+        /**
+         * Converts a base64 string to an ArrayBuffer.
+         */
+        function base64ToArrayBuffer(base64) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        /**
+         * Converts raw 16-bit PCM audio data (ArrayBuffer) into a full WAV ArrayBuffer container.
+         * This allows the Web Audio API's decodeAudioData to process it correctly.
+         * @param {Int16Array} pcm16 - The raw 16-bit PCM data.
+         * @param {number} sampleRate - The sample rate.
+         * @returns {ArrayBuffer} The complete WAV file data.
+         */
+        function createWavArrayBuffer(pcm16, sampleRate) {
+            // 16-bit PCM, 1 channel
+            const numChannels = 1;
+            const bitsPerSample = 16;
+            const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+            const blockAlign = numChannels * (bitsPerSample / 8);
+            const dataSize = pcm16.length * 2; // 2 bytes per sample (Int16)
+            const buffer = new ArrayBuffer(44 + dataSize);
+            const view = new DataView(buffer);
+            let offset = 0;
+
+            function writeString(str) {
+                for (let i = 0; i < str.length; i++) {
+                    view.setUint8(offset + i, str.charCodeAt(i));
+                }
+                offset += str.length;
+            }
+
+            function writeUint32(val) {
+                view.setUint32(offset, val, true);
+                offset += 4;
+            }
+
+            function writeUint16(val) {
+                view.setUint16(offset, val, true);
+                offset += 2;
+            }
+
+            // RIFF header
+            writeString('RIFF');
+            writeUint32(36 + dataSize); // ChunkSize
+            writeString('WAVE');
+
+            // FMT sub-chunk
+            writeString('fmt ');
+            writeUint32(16); // Subchunk1Size (16 for PCM)
+            writeUint16(1);  // AudioFormat (1 for PCM)
+            writeUint16(numChannels);
+            writeUint32(sampleRate);
+            writeUint32(byteRate);
+            writeUint16(blockAlign);
+            writeUint16(bitsPerSample);
+
+            // DATA sub-chunk
+            writeString('data');
+            writeUint32(dataSize);
+
+            // Write the PCM data (Int16Array to DataView)
+            for (let i = 0; i < pcm16.length; i++) {
+                view.setInt16(offset, pcm16[i], true); // Write signed 16-bit little-endian
+                offset += 2;
+            }
+
+            return buffer;
+        }
+        
+        /**
+         * Converts ArrayBuffer to a Blob for creating a fallback URL (used by retryPlayTts).
+         * @param {ArrayBuffer} arrayBuffer - The WAV ArrayBuffer.
+         * @returns {Blob} The WAV audio Blob.
+         */
+        function arrayBufferToWavBlob(arrayBuffer) {
+             return new Blob([arrayBuffer], { type: 'audio/wav' });
+        }
+
+
+        /**
+         * Adds a manual play button/icon to a message element.
+         */
+        function showPlayButton(messageEl) {
+            // Check if button already exists to avoid duplicates
+            if (messageEl.querySelector('.tts-play-btn')) return;
+
+            const playButton = document.createElement('button');
+            playButton.className = 'tts-play-btn ml-2 flex-shrink-0 text-red-300 hover:text-red-400 focus:outline-none transition duration-150 p-1 rounded-full';
+            playButton.setAttribute('onclick', 'retryPlayTts(this)');
+            
+            // Speaker icon
+            playButton.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                </svg>
+            `;
+            
+            // Append the button to the message element content
+            messageEl.appendChild(playButton);
+        }
+
+        /**
+         * Retries playback using a URL stored on the message element (new Audio() method).
+         * This is the manual fallback method.
+         * @param {HTMLElement} buttonEl - The play button clicked by the user.
+         */
+        function retryPlayTts(buttonEl) {
+            const messageEl = buttonEl.closest('.message-box');
+            const audioUrl = messageEl.dataset.audioUrl;
+            
+            if (audioUrl) {
+                const audio = new Audio(audioUrl);
+                
+                // Remove the button immediately to indicate successful action
+                buttonEl.remove();
+                
+                audio.play().catch(e => {
+                    console.error("Manual audio playback failed unexpectedly:", e);
+                    // If it fails again, re-add the button (highly unlikely here)
+                    showPlayButton(messageEl);
+                });
+
+                // Clean up the URL only when playback is finished
+                audio.onended = () => URL.revokeObjectURL(audioUrl);
+            }
+        }
+
+        /**
+         * Calls the TTS API, generates the audio, wraps it in WAV, and plays it using AudioContext.
+         * If playback is blocked, it adds a play icon to the message element.
+         * @param {string} text - The text to be spoken.
+         * @param {HTMLElement} messageEl - The message box element to attach a play button if needed.
+         */
+        async function generateAndPlayTts(text, messageEl) {
+            if (!audioContext) {
+                console.error("Cannot play TTS: AudioContext is not initialized.");
+                return;
+            }
+
+            // Using the global API key here
+            const ttsApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+
+            const ttsPayload = {
+                contents: [{
+                    parts: [{ text: text }]
+                }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: "Kore" } // Using a clear, firm voice
+                        }
+                    }
+                },
+                model: "gemini-2.5-flash-preview-tts"
+            };
+
+            try {
+                const response = await fetch(ttsApiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(ttsPayload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`TTS API failed: ${response.status}`);
+                }
+
+                const result = await response.json();
+                const part = result?.candidates?.[0]?.content?.parts?.[0];
+                const audioDataB64 = part?.inlineData?.data;
+                const mimeType = part?.inlineData?.mimeType;
+
+                if (audioDataB64 && mimeType && mimeType.startsWith("audio/L16")) {
+                    
+                    // 1. Convert base64 audio data to ArrayBuffer (raw PCM data)
+                    const audioBufferRaw = base64ToArrayBuffer(audioDataB64);
+
+                    if (audioBufferRaw.byteLength === 0) {
+                        console.error("Received audio buffer is empty after base64 decode.");
+                        return;
+                    }
+                    
+                    // 2. Extract sample rate and create Int16Array view
+                    const rateMatch = mimeType.match(/rate=(\d+)/);
+                    const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000;
+                    const pcm16 = new Int16Array(audioBufferRaw);
+                    
+                    // 3. Wrap raw PCM data in a WAV container ArrayBuffer
+                    const wavBuffer = createWavArrayBuffer(pcm16, sampleRate);
+
+                    // 4. Decode the WAV ArrayBuffer using AudioContext
+                    audioContext.decodeAudioData(wavBuffer, (decodedBuffer) => {
+                        const source = audioContext.createBufferSource();
+                        source.buffer = decodedBuffer;
+                        source.connect(audioContext.destination);
+                        
+                        try {
+                            source.start(0);
+                            console.log("TTS played using Web Audio API (WAV container).");
+                        } catch (e) {
+                            // This catch handles critical failures (like context suddenly suspended)
+                            console.warn("AudioContext playback failed, falling back to manual button:", e);
+                            
+                            // Fallback setup: create a Blob from the WAV buffer and a URL
+                            const wavBlob = arrayBufferToWavBlob(wavBuffer);
+                            const audioUrl = URL.createObjectURL(wavBlob);
+                            
+                            messageEl.dataset.audioUrl = audioUrl;
+                            showPlayButton(messageEl);
+                        }
+                        
+                    }, (error) => {
+                        console.error("Error decoding WAV audio data in Web Audio API:", error);
+                        // If decoding fails, the data is likely corrupted, so no fallback play button needed.
+                    });
+
+                } else {
+                    console.error("TTS response missing valid audio data or mime type.", mimeType);
+                }
+
+            } catch (e) {
+                console.error("TTS generation error:", e);
+            }
+        }
+        
+        // --- SETTINGS AND STORAGE FUNCTIONS ---
+
+        /**
+         * Loads all settings (System Instruction and TTS state) from storage.
+         */
+        async function initializeSettings() {
+            let sysMessageStatus = 'Default';
+            try {
+                if (window.creationStorage && window.creationStorage.plain) {
+                    // Load System Instruction
+                    const storedInstructionBase64 = await window.creationStorage.plain.getItem(STORAGE_SYS_KEY);
+                    if (storedInstructionBase64) {
+                        systemInstruction = atob(storedInstructionBase64);
+                        sysMessageStatus = 'Custom';
+                    }
+                    // Load TTS State
+                    const storedTtsEnabled = await window.creationStorage.plain.getItem(STORAGE_TTS_KEY);
+                    if (storedTtsEnabled === 'true') {
+                        isTtsEnabled = true;
+                        ttsToggle.checked = true;
+                    }
+                }
+            } catch (e) {
+                console.error("Error loading settings from storage:", e);
+            }
+            // Add the initial welcome message to the UI
+            addMessage(`Hello! Ask me anything. I can remember our conversation now. (Instruction: ${sysMessageStatus}, TTS: ${isTtsEnabled ? 'On' : 'Off'})`, 'model', false);
+        }
+
+        /**
+         * Saves the current system instruction to R1 plain storage.
+         */
+        async function saveSystemInstruction(newInstruction) {
+            try {
+                if (window.creationStorage && window.creationStorage.plain) {
+                    const encodedInstruction = btoa(newInstruction);
+                    await window.creationStorage.plain.setItem(STORAGE_SYS_KEY, encodedInstruction);
+                    systemInstruction = newInstruction;
+                    console.log("System Instruction saved.");
+                } else {
+                    systemInstruction = newInstruction;
+                    console.warn("Storage not available. System instruction updated in memory only.");
+                }
+            } catch (e) {
+                console.error("Error saving system instruction to storage:", e);
+            }
+        }
+        
+        /**
+         * Saves the current TTS state to R1 plain storage.
+         */
+        async function saveTtsSetting(isEnabled) {
+            try {
+                if (window.creationStorage && window.creationStorage.plain) {
+                    await window.creationStorage.plain.setItem(STORAGE_TTS_KEY, isEnabled ? 'true' : 'false');
+                    isTtsEnabled = isEnabled;
+                    console.log(`TTS setting saved: ${isEnabled}`);
+                }
+            } catch (e) {
+                console.error("Error saving TTS setting to storage:", e);
+            }
+        }
+
+
+        /**
+         * Opens the settings overlay and populates the textarea.
+         */
+        function openSettings() {
+            sysInstructionInput.value = systemInstruction;
+            ttsToggle.checked = isTtsEnabled; // Update toggle state
+            settingsOverlay.classList.add('active');
+        }
+
+        /**
+         * Saves the settings and closes the overlay.
+         */
+        async function saveSettings() {
+            // Save System Instruction if changed
+            const newInstruction = sysInstructionInput.value.trim();
+            if (newInstruction && newInstruction !== systemInstruction) {
+                await saveSystemInstruction(newInstruction);
+            }
+            // TTS setting is saved instantly via toggleTts, but ensure toggle state is reflected
+            isTtsEnabled = ttsToggle.checked;
+            
+            settingsOverlay.classList.remove('active');
+        }
+        
+        /**
+         * Resets the system instruction and TTS setting to the default value.
+         */
+        async function resetSettings() {
+            sysInstructionInput.value = DEFAULT_SYSTEM_INSTRUCTION;
+            ttsToggle.checked = false;
+            
+            await saveSystemInstruction(DEFAULT_SYSTEM_INSTRUCTION);
+            await saveTtsSetting(false);
+            
+            settingsOverlay.classList.remove('active');
+            // Reload the initial welcome message to reflect changes
+            chatHistoryData = [];
+            chatHistory.innerHTML = '';
+            await initializeSettings();
+        }
+
+        /**
+         * Toggles the TTS feature on/off and saves the setting.
+         */
+        async function toggleTts() {
+            const newState = ttsToggle.checked;
+            await saveTtsSetting(newState);
+        }
+
+
+        /**
+         * Converts basic Markdown (like bolding) to HTML.
+         */
+        function basicMarkdownToHtml(text) {
+            let htmlText = text;
+
+            // 1. Convert Markdown bold (**text** or __text__) to <strong>
+            htmlText = htmlText.replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>');
+            htmlText = htmlText.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+
+            // 2. Convert newlines to <br> to respect basic list/paragraph separation
+            htmlText = htmlText.replace(/\n/g, '<br>');
+            
+            return htmlText;
+        }
+
+
+        /**
+         * Adds a message bubble to the chat history and updates chatHistoryData.
+         * Returns the created message element for TTS attachment.
+         */
+        function addMessage(text, sender, updateHistory = true) {
+            
+            if (updateHistory) {
+                // Add message to the in-memory history
+                chatHistoryData.push({ 
+                    role: sender === 'user' ? 'user' : 'model', 
+                    parts: [{ text: text }] 
+                });
+            }
+
+            // Format the text for UI display
+            const formattedText = basicMarkdownToHtml(text);
+
+            // Update UI (only for the new message to prevent redrawing everything)
+            const messageEl = document.createElement('div');
+            // Add 'flex' and 'items-start' to allow for the play button placement
+            messageEl.className = 'message-box p-2 rounded-lg text-sm max-w-[85%] opacity-0 transform translate-y-2';
+
+            if (sender === 'user') {
+                messageEl.classList.add('ml-auto', 'bg-red-700');
+                messageEl.innerHTML = formattedText;
+            } else {
+                messageEl.classList.add('mr-auto', 'bg-gray-700', 'flex', 'items-start');
+                // Wrap content in a span so the play button doesn't affect formatting
+                messageEl.innerHTML = `<span><strong>R1-Gemini:</strong> ${formattedText}</span>`;
+            }
+
+            // Append the message element
+            chatHistory.appendChild(messageEl);
+
+            // Animate message in (optimized CSS properties)
+            setTimeout(() => {
+                messageEl.classList.remove('opacity-0', 'translate-y-2');
+            }, 10);
+
+            // Scroll to the latest message
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+            
+            return messageEl;
+        }
+
+        /**
+         * Handles the main process of sending a message to the Gemini API.
+         */
+        async function sendMessage() {
+            if (isGenerating) return;
+
+            const prompt = userInput.value.trim();
+            if (!prompt) return;
+
+            // CRITICAL: Ensure AudioContext is initialized and unlocked during the user's explicit click
+            if (isTtsEnabled) {
+                await ensureAudioContext();
+            }
+
+            // Add user message to history and UI
+            const userText = userInput.value;
+            addMessage(userText, 'user');
+
+            userInput.value = ''; // Clear input field
+            
+            isGenerating = true;
+            toggleLoading(true);
+
+            // Exponential backoff parameters
+            const MAX_RETRIES = 5;
+            const INITIAL_DELAY = 1000; // 1 second
+
+            for (let retry = 0; retry < MAX_RETRIES; retry++) {
+                try {
+                    const payload = {
+                        // Send the full history array
+                        contents: chatHistoryData, 
+                        // Use the global, customizable system instruction
+                        systemInstruction: {
+                            parts: [{ text: systemInstruction }]
+                        },
+                    };
+
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.status === 429 && retry < MAX_RETRIES - 1) {
+                        const delay = INITIAL_DELAY * Math.pow(2, retry) + Math.random() * 1000;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                    }
+
+                    if (!response.ok) {
+                        throw new Error(`API Request failed with status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry, I couldn't generate a response.";
+                    
+                    // Add AI response to history and UI and capture the new element
+                    const modelMessageEl = addMessage(text, 'model');
+
+                    // --- NEW: TTS INTEGRATION ---
+                    if (isTtsEnabled) {
+                        // Pass the message element to allow it to attach a retry button
+                        await generateAndPlayTts(text, modelMessageEl);
+                    }
+                    // --- END TTS INTEGRATION ---
+
+                    break; // Success, exit retry loop
+
+                } catch (error) {
+                    console.error('Gemini API Error:', error);
+                    chatHistoryData.pop(); 
+                    if (retry === MAX_RETRIES - 1) {
+                        addMessage("An error occurred after multiple retries. Please check your connection or try again.", 'model');
+                    }
+                }
+            }
+            
+            isGenerating = false;
+            toggleLoading(false);
+        }
+
+        /**
+         * Toggles the loading state of the UI.
+         */
+        function toggleLoading(isLoading) {
+            sendButton.disabled = isLoading;
+            if (isLoading) {
+                buttonText.classList.add('hidden');
+                buttonLoader.classList.remove('hidden');
+                userInput.disabled = true;
+            } else {
+                buttonText.classList.remove('hidden');
+                buttonLoader.classList.add('hidden');
+                userInput.disabled = false;
+                userInput.focus();
+            }
+        }
+
+        /**
+         * Handles the Enter key press in the textarea.
+         */
+        function handleEnter(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault(); // Prevent new line
+                sendMessage();
+            }
+        }
+
+        // --- R1 CREATIONS SDK INTEGRATION ---
+
+        window.addEventListener("sideClick", () => {
+            if (!isGenerating) {
+                console.log("Side button clicked: Submitting message.");
+                sendMessage();
+            }
+        });
+
+        const SCROLL_AMOUNT = 30; // Pixels to scroll per wheel event
+
+        window.addEventListener("scrollUp", () => {
+            console.log("Scroll wheel up: Scrolling chat history.");
+            chatHistory.scrollTop -= SCROLL_AMOUNT;
+        });
+
+        window.addEventListener("scrollDown", () => {
+            console.log("Scroll wheel down: Scrolling chat history.");
+            chatHistory.scrollTop += SCROLL_AMOUNT;
+        });
+
+        window.onPluginMessage = function(data) {
+            console.log("Received message from server:", data);
+        };
+
+        // Initialize: Load settings and focus input
+        document.addEventListener('DOMContentLoaded', async () => {
+            await initializeSettings();
+            userInput.focus();
+        });
+
+    </script>
+</body>
+</html>
